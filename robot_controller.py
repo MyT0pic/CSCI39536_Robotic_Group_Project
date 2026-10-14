@@ -1,2 +1,0 @@
-print("Robot controller initialized!")
-
