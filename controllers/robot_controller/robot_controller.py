@@ -1,7 +1,7 @@
 from controller import Robot
 
 MAX_SPEED = 5.0          
-OBSTACLE_THRESHOLD = 750.0  
+OBSTACLE_THRESHOLD = 850.0  
 CLOSE_LEVEL = 850.0         
 HOLD_STEPS = 60             
 BACK_STEPS = 25             
