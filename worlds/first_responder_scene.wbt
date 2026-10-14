@@ -1,0 +1,21 @@
+#VRML_SIM R2025a utf8
+WorldInfo {
+  basicTimeStep 16
+}
+Viewpoint {
+  orientation -0.57 0.57 0.57 2.09
+  position 0 0 10
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 5 5
+}
+Pioneer3at {
+  translation 0 0 0.11
+  name "first_responder_bot"
+  controller "robot_controller"
+}
+
