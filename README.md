@@ -16,7 +16,7 @@ Sheea Mcfarlane
 | | Feature | Status |
 |---|---|---|
 | ✅ | Explore the arena on its own | Working |
-| ✅ | Detect and avoid walls | Working |
+| ✅ | Detect and avoid walls and objects(LIMITATION - ORANGE OBJECTS CURRENTLY)  | Working |
 | 🔜 | Find a victim marker | Next |
 | 🔜 | Deliver supplies | Planned |
 | 🔜 | Human stop override and safe approach distance | Planned |
