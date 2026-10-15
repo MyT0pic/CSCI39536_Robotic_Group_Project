@@ -6,10 +6,10 @@ A simulated robot that explores a disaster-style arena on its own. Our goal is a
 **Team:** 
 Shernice Chetty
 Sheea Mcfarlane
-#name 
-#name
-#name
-#name
+Brian Mai 
+Stanley Zheng
+Sam Lin
+Oscar Pan
 
 ## Where we are
 
@@ -19,6 +19,7 @@ Sheea Mcfarlane
 | ✅ | Detect and avoid walls and objects(LIMITATION - ORANGE OBJECTS CURRENTLY)  | Working |
 | 🔜 | Find a victim marker | Next |
 | 🔜 | Deliver supplies | Planned |
+| 🔜 | Pick up rubble and debris | Planned |
 | 🔜 | Human stop override and safe approach distance | Planned |
 
 ## How to run
@@ -27,7 +28,8 @@ You need [Webots](https://cyberbotics.com) (version R2025a or newer) and Python 
 
 1. Open Webots.
 2. Choose **File → Open World…** and pick `worlds/first_responder_scene.wbt`.
-3. Press **Play**.
+3. Choose **File → Open Text File…** and pick `controllers/robot_controller/robot_controller.py`.
+4. Press **Play**.
 
 The robot drives around the arena and turns away from walls. The first run needs an internet connection, because Webots downloads the robot and arena models.
 
