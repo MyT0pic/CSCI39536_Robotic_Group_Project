@@ -40,13 +40,13 @@ The robot is a Pioneer 3-AT with distance sensors (sonars) on its front. It keep
 ```mermaid
 stateDiagram-v2
     [*] --> Drive
-    Drive --> Back_up: wall ahead
+    Drive --> Back_up: wall or non-human object ahead
     Back_up --> Turn: after a moment
     Turn --> Drive: after a moment
 ```
 
 - **Drive:** go straight while the front sensors see nothing close.
-- **Back up:** when a wall is close, reverse briefly to get clear of it.
+- **Back up:** when a wall or an non-human object is close, reverse briefly to get clear of it.
 - **Turn:** rotate toward whichever side has more room, then drive again.
 
 The code is in [controllers/robot_controller/robot_controller.py](controllers/robot_controller/robot_controller.py), and the arena is in [worlds/first_responder_scene.wbt](worlds/first_responder_scene.wbt).
