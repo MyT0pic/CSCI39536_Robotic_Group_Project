@@ -27,11 +27,11 @@ Oscar Pan
 You need [Webots](https://cyberbotics.com) (version R2025a or newer) and Python 3.8+.
 
 1. Open Webots.
-2. Choose **File → Open World…** and pick `worlds/first_responder_scene.wbt`.
+2. Choose **File → Open World…** and pick `worlds/building_site.wbt`.
 3. Choose **File → Open Text File…** and pick `controllers/robot_controller/robot_controller.py`.
 4. Press **Play**.
 
-The robot drives around the arena and turns away from walls. The first run needs an internet connection, because Webots downloads the robot and arena models.
+The robot starts outside the building's main entrance, drives around and turns away from walls. The first run needs an internet connection, because Webots downloads the robot and arena models (it can take a minute or two).
 
 > **Tip:** If Webots asks to save the world when you close or reload it, choose **Don't Save**.
 
@@ -51,7 +51,26 @@ stateDiagram-v2
 - **Back up:** when a wall or an non-human object is close, reverse briefly to get clear of it.
 - **Turn:** rotate toward whichever side has more room, then drive again.
 
-The code is in [controllers/robot_controller/robot_controller.py](controllers/robot_controller/robot_controller.py), and the arena is in [worlds/first_responder_scene.wbt](worlds/first_responder_scene.wbt).
+The code is in [controllers/robot_controller/robot_controller.py](controllers/robot_controller/robot_controller.py), and the arena is in [worlds/building_site.wbt](worlds/building_site.wbt).
+
+## The building site
+
+The arena models a partly collapsed building on a 26 m × 18 m lot. The building is 20 m × 12 m, with 3.5 m outer walls and 3 m inner walls, and has one area for each scenario we want to demonstrate.
+
+| Area | What's there |
+|---|---|
+| Collapsed zone (north-west) | The upper floor fell in: tilted floor slabs, a rubble heap, a snapped column with rebar, a hanging piece of floor. The outer walls here are broken and rubble spills outside. |
+| Utility room | Flooded floor, a fallen air duct. **Victim 1** stands on dry floor, clear of the water. |
+| Office (north-east) | A desk on fire (flames along its top, with smoke), burnt furniture. |
+| Corridor | Runs the length of the building. A ceiling slab hangs off its wall and falls into it. |
+| Lobby and entrance | Overturned reception desk, fallen lintel and rubble in the doorway. |
+| Office (south-west) | Ceiling slab leaning across the corner, desks. **Victim 2** stands on open floor, clear of the slab. |
+| Chemical lab | Leaking drums, green toxic spill, yellow acid spill, a pool of spilled chemicals on fire, gas cylinders. |
+
+- **Uneven ground:** rolling bumps everywhere (up to about 60 cm outside, 40 cm inside), plus rubble heaps up to about 1 m.
+- **Falling debris:** two pieces are still attached to walls: a ceiling slab hanging off the corridor wall, and a cracked chunk of brick wall over the doorway to the collapsed zone. When the robot comes within 4 m, the piece shakes for about a second, then breaks loose and falls into the robot's path. Everything else is static, which keeps the physics light.
+- **Spills, water and fire** The robot will need to identify hazards and avoid them.
+- **Victims** are human models standing upright.
 
 ## Known limitations
 
