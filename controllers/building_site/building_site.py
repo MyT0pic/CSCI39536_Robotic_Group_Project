@@ -13,14 +13,13 @@ from controller import Supervisor
 # DEF name in the world, mass (kg), what to call it
 HANGING_DEBRIS = [
     ("HANGING_CEILING_SLAB", 150, "ceiling slab in the corridor"),
-    ("LOOSE_WALL_CHUNK", 90, "chunk of brick wall by the collapsed zone"),
 ]
 WARN_DISTANCE = 4.0   # starts shaking when the robot is this close (meters)
 SHAKE_TIME = 1.2      # seconds of shaking before it falls
 SHAKE_SIZE = 0.015    # meters
 
-FLAME_RADIUS = 0.14   # must match tools/generate_building_site.py
-ANIMATE_EVERY = 2     # update the fire particles every N steps
+FLAME_RADIUS = 0.14   
+ANIMATE_EVERY = 4     # update the fire particles every N steps
 
 sup = Supervisor()
 timestep = int(sup.getBasicTimeStep())
@@ -35,7 +34,7 @@ FLAME_KINDS = {
     "middle": {"height": (0.7, 1.1), "swell": (0.9, 1.2), "spread": 0.3},
     "tip": {"height": (1.0, 1.5), "swell": (0.6, 0.9), "spread": 0.2},
 }
-KIND_ORDER = ["core", "middle", "middle", "tip"]  # must match tools/generate_building_site.py
+KIND_ORDER = ["core", "middle", "middle", "tip"]  
 
 
 def new_flame(p, size, start_age=None):
