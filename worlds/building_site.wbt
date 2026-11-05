@@ -94,6 +94,10 @@ DEF RESPONDER Pioneer3at {
   controller "robot_controller"
   supervisor TRUE
   extensionSlot [
+    Display {
+      width 160
+      height 120
+    }
     Camera {
       translation 0.22 0 0.33
       name "camera"

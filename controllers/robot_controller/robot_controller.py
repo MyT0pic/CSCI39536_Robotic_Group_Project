@@ -1,6 +1,8 @@
 import os
 
+import cv2
 import numpy as np
+from ultralytics import YOLO
 from controller import Supervisor
 
 from robot.control.pid import PIDController
@@ -19,6 +21,7 @@ MAP_SAVE_EVERY = 120.0
 FINISH_WAIT = 3.0  # s: once back home and done, wait this long, then pause the simulation
 SETTLE_TIME = 1.0  # s
 MAP_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "maps")
+CONFIDENCE_THRESHOLD = 0.65
 
 
 robot = Supervisor()
@@ -58,6 +61,18 @@ MOTOR_LIMIT = left_wheels[0].getMaxVelocity()  # rad/s, the wheel motors' top sp
 camera = robot.getDevice("camera")
 if camera:
 	camera.enable(timestep)
+
+# Pre-trained YOLO Model for Object Detection and Classification
+model = YOLO("yolov8n.pt")
+
+# COCO dataset class index for a person is 0
+PERSON_CLASS_ID = 0
+
+# To force Display View to overlay Camera View
+robot.step(timestep)
+
+display = robot.getDevice("display")
+display.attachCamera(camera)
 
 # odom
 imu = IMU(robot, timestep)
@@ -141,6 +156,55 @@ def find_orange_target():
                 return True, (x - (width / 2)) / (width / 2)
     return False, 0.0
 
+def draw_victim_bounding_boxes():
+   width = camera.getWidth()
+   height = camera.getHeight()
+   image = camera.getImage()
+
+   if not image:
+       return
+
+   image_np = np.frombuffer(image, dtype=np.uint8).reshape((height, width, 4))
+   image_BGR = cv2.cvtColor(image_np, cv2.COLOR_BGRA2BGR) # Convert from BGRA to BGR for YOLO processing
+   model_results = model(image_BGR, iou=0.3, verbose=False)
+
+   # Clear display
+   clearing_image = display.imageNew(image, display.BGRA, width, height)
+   display.imagePaste(clearing_image, 0, 0, False)
+   display.imageDelete(clearing_image)
+
+   for result in model_results:
+       boxes = result.boxes
+       highest_confidence = 0.0
+
+       # Stores class_id, class_name, confidence level, coordinates in the form [x1, y1, x2, y2]
+       highest_confidence_box = {"class_id": -1, "class_name": "", "confidence": 0.0, "coords": [None, None, None, None]}
+
+       for box in boxes:
+           class_id = int(box.cls[0])
+           class_name = result.names[class_id]
+           confidence = float(box.conf[0])
+           x1, y1, x2, y2 = map(int, box.xyxy[0]) # Get bounding box coordinates
+
+           if class_id == PERSON_CLASS_ID and confidence > highest_confidence:
+               highest_confidence = confidence
+               highest_confidence_box["class_id"] = class_id
+               highest_confidence_box["class_name"] = class_name
+               highest_confidence_box["confidence"] = confidence
+               highest_confidence_box["coords"] = [x1, y1, x2, y2]
+
+       if highest_confidence_box["class_id"] == PERSON_CLASS_ID and highest_confidence_box["confidence"] > CONFIDENCE_THRESHOLD:
+           confidence = highest_confidence_box["confidence"]
+           bounding_box = highest_confidence_box["coords"]
+           x1, y1, x2, y2 = bounding_box[0], bounding_box[1], bounding_box[2], bounding_box[3]
+
+           print(f"Human detected with highest confidence: {confidence} with bounding box: [{x1}, {y1}, {x2}, {y2}]")
+
+           # Draw green bounding box
+           display.setColor(0x00FF00)
+           box_w = x2 - x1
+           box_h = y2 - y1
+           display.drawRectangle(x1, y1, box_w, box_h)
 
 def start_pose():
     """The robot's start pose in the world: position from the supervisor, heading from the IMU."""
