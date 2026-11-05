@@ -24,12 +24,25 @@ Oscar Pan
 
 ## How to run
 
+Ensure that the required Python libraries are installed from `requirements.txt`.
+
+Windows:
+```
+cd path\to\CSCI39536_Robotic_Group_Project-main
+python -m pip install -r requirements.txt
+```
+Mac/ Linux:
+```
+cd path/to/CSCI39536_Robotic_Group_Project-main
+python3 -m pip install -r requirements.txt
+```
+
 You need [Webots](https://cyberbotics.com) (version R2025a or newer) and Python 3.8+.
 
 1. Open Webots.
 2. Choose **File → Open World…** and pick `worlds/building_site.wbt`.
 3. Choose **File → Open Text File…** and pick `controllers/robot_controller/robot_controller.py`.
-4. Press **Play**.
+5. Press **Play**.
 
 The robot starts outside the building's main entrance, drives around and turns away from walls. The first run needs an internet connection, because Webots downloads the robot and arena models (it can take a minute or two).
 
