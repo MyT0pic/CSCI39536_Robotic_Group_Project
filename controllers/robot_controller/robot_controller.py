@@ -3,7 +3,8 @@ import os
 import cv2
 import numpy as np
 from ultralytics import YOLO
-from controller import Supervisor
+from controller import Supervisor, Keyboard
+
 
 from robot.control.pid import PIDController
 from robot.localization.odometry import Odometry
@@ -22,12 +23,36 @@ FINISH_WAIT = 3.0  # s: once back home and done, wait this long, then pause the 
 SETTLE_TIME = 1.0  # s
 MAP_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "maps")
 CONFIDENCE_THRESHOLD = 0.65
+MANUAL_TIMEOUT = 2.0   # s without a key before autonomy takes back over
+MANUAL_SPEED = 0.5     # m/s
+MANUAL_TURN = 1.0      # rad/s
 
 
 robot = Supervisor()
 # physics step (16 ms)
 timestep = int(robot.getBasicTimeStep())
 dt = timestep / 1000.0
+
+keyboard = robot.getKeyboard()
+keyboard.enable(timestep)
+
+def read_manual_command():
+    """(speed m/s, turn rad/s) from arrow keys or WASD, or None if no drive key is held."""
+    speed = turn = 0.0
+    pressed = False
+    key = keyboard.getKey()
+    while key != -1:                       # several keys can be held at once
+        k = key & Keyboard.KEY             # strip shift/ctrl/alt bits
+        if k in (Keyboard.UP, ord("W")):
+            speed += MANUAL_SPEED; pressed = True
+        elif k in (Keyboard.DOWN, ord("S")):
+            speed -= MANUAL_SPEED; pressed = True
+        elif k in (Keyboard.LEFT, ord("A")):
+            turn += MANUAL_TURN; pressed = True      # positive = left
+        elif k in (Keyboard.RIGHT, ord("D")):
+            turn -= MANUAL_TURN; pressed = True
+        key = keyboard.getKey()
+    return (speed, turn) if pressed else None
 
 def get_wheels(names):
     """The wheel motors, in velocity mode, stopped."""
@@ -218,6 +243,8 @@ def main():
     previous_state = explorer.state
     next_map_save = MAP_SAVE_EVERY
     finished_at = None  # when the robot got back home with nothing left to explore
+    manual_active = False
+    last_manual = -1e9
 
     print("[SUCCESS] First Responder robot_controller is connected and streaming code!")
 
@@ -251,11 +278,31 @@ def main():
         # target_found, center_offset = find_orange_target()
 
         #where to go next, as a forward speed (m/s) and turn rate (rad/s, positive = left)
+                # manual override: any drive key takes control; no keys for MANUAL_TIMEOUT hands it back
+        manual = read_manual_command()
+        now = robot.getTime()
+        if manual is not None:
+            if not manual_active:
+                manual_active = True
+                forward_pid.reset()
+                angular_pid.reset()
+                print("[MODE] MANUAL")
+            last_manual = now
+        elif manual_active and now - last_manual > MANUAL_TIMEOUT:
+            manual_active = False
+            forward_pid.reset()
+            angular_pid.reset()
+            print("[MODE] AUTONOMOUS")
+
         target_speed, target_turn_rate = 0.0, 0.0
-        if settled:
+        if manual_active:
+            # keys held -> drive; keys just released -> hold still until the timeout expires
+            target_speed, target_turn_rate = manual if manual is not None else (0.0, 0.0)
+        elif settled:
             stops = explorer.stops
             target_speed, target_turn_rate = explorer.update(robot.getTime(), pose, roll, pitch, slam.nav_points)
             if explorer.stops > stops:
+                ...  # your existing [STOP] print block, unchanged
                 blocking = explorer.local.blocking
                 nearest = blocking[int(np.argmin(np.hypot(blocking[:, 0] - pose.x, blocking[:, 1] - pose.y)))]
                 print(f"[STOP] {robot.getTime():.1f} local cost map: {len(blocking)} cells in the way, nearest at "
