@@ -38,7 +38,9 @@ Mac/ Linux:
 cd path/to/CSCI39536_Robotic_Group_Project-main
 python3 -m pip install -r requirements.txt
 ```
-**Webots uses its own Python setting (Webots → Preferences → Python command). Install the requirements with that same Python, or the controller will fail with `ModuleNotFoundError` (for example `ultralytics`).**
+Webots uses its own Python setting (Webots → Preferences → Python command). Install the requirements with that same Python, or the controller will fail with `ModuleNotFoundError` (for example `ultralytics`).
+
+
 You need [Webots](https://cyberbotics.com) (version R2025a or newer) and Python 3.8+.
 
 1. Open Webots.
