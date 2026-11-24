@@ -8,4 +8,6 @@ worlds/.*.wbproj
 # SLAM output
 maps/
 *.wbt.bak
-*.wbt.bak
+
+logs/
+*.pt

@@ -1,4 +1,7 @@
+import datetime
+import math
 import os
+import sys
 
 import cv2
 import numpy as np
@@ -16,6 +19,7 @@ from robot.utils.body import TRACK_WIDTH, WHEEL_RADIUS
 from robot.utils.geometry import rotation_matrix
 from robot.utils.image import save_png, save_top_view
 from robot.utils.numeric import clamp
+from robot.perception.victims import VictimApproach, VictimDetector
 
 LOG_EVERY = 30
 MAP_SAVE_EVERY = 120.0
@@ -26,7 +30,27 @@ CONFIDENCE_THRESHOLD = 0.65
 MANUAL_TIMEOUT = 2.0   # s without a key before autonomy takes back over
 MANUAL_SPEED = 0.5     # m/s
 MANUAL_TURN = 1.0      # rad/s
+DETECT_EVERY = 10  # run YOLO every 10 steps (~0.16 s), it's too slow to run every step
+LOG_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "logs")
 
+
+class _Tee:
+    """Print to the Webots console and to a log file at the same time."""
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, text):
+        for stream in self.streams:
+            stream.write(text)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
+
+
+os.makedirs(LOG_FOLDER, exist_ok=True)
+_log_file = open(os.path.join(LOG_FOLDER, datetime.datetime.now().strftime("run_%Y%m%d_%H%M%S.txt")), "w", buffering=1)
+sys.stdout = _Tee(sys.stdout, _log_file)
 
 robot = Supervisor()
 # physics step (16 ms)
@@ -85,7 +109,9 @@ MOTOR_LIMIT = left_wheels[0].getMaxVelocity()  # rad/s, the wheel motors' top sp
 #Turn on the front camera
 camera = robot.getDevice("camera")
 if camera:
-	camera.enable(timestep)
+    camera.enable(timestep)
+    if camera.hasRecognition():
+        camera.recognitionEnable(timestep)
 
 # Pre-trained YOLO Model for Object Detection and Classification
 model = YOLO("yolov8n.pt")
@@ -112,6 +138,33 @@ slam = LidarSLAM()
 
 # navigation: explore until the whole reachable area is mapped
 explorer = Explorer()
+explorer.costmap.preferred_area = (-10.2, 10.2, -6.2, 6.2)  # the building's outer walls: drive outside only when there's no way inside
+
+# victims: the camera's recognition finds them, the approach drives up to them
+detector = VictimDetector()
+approach = VictimApproach(detector)
+
+
+def true_victim_positions():
+    """Where the victims really are (supervisor), only to check the robot's estimates in the log."""
+    children = robot.getRoot().getField("children")
+    found = []
+    for i in range(children.getCount()):
+        node = children.getMFNode(i)
+        if node.getTypeName() == "Pedestrian":
+            x, y, _ = node.getPosition()
+            found.append((x, y))
+    return found
+
+
+TRUE_VICTIMS = true_victim_positions()
+
+
+def truth_error(victim):
+    if not TRUE_VICTIMS:
+        return ""
+    error = min(math.dist((victim.x, victim.y), p) for p in TRUE_VICTIMS)
+    return f" [{error:.2f} m from the real victim]"
 
 forward_pid = PIDController(kp=0.3, ki=3.0, output_limits=(-MOTOR_LIMIT, MOTOR_LIMIT))   # m/s in, rad/s out
 angular_pid = PIDController(kp=1.0, ki=36.0, output_limits=(-MOTOR_LIMIT, MOTOR_LIMIT))  # rad/s in, rad/s out
@@ -187,7 +240,7 @@ def draw_victim_bounding_boxes():
    image = camera.getImage()
 
    if not image:
-       return
+       return False
 
    image_np = np.frombuffer(image, dtype=np.uint8).reshape((height, width, 4))
    image_BGR = cv2.cvtColor(image_np, cv2.COLOR_BGRA2BGR) # Convert from BGRA to BGR for YOLO processing
@@ -198,6 +251,7 @@ def draw_victim_bounding_boxes():
    display.imagePaste(clearing_image, 0, 0, False)
    display.imageDelete(clearing_image)
 
+   found = False
    for result in model_results:
        boxes = result.boxes
        highest_confidence = 0.0
@@ -223,13 +277,15 @@ def draw_victim_bounding_boxes():
            bounding_box = highest_confidence_box["coords"]
            x1, y1, x2, y2 = bounding_box[0], bounding_box[1], bounding_box[2], bounding_box[3]
 
-           print(f"Human detected with highest confidence: {confidence} with bounding box: [{x1}, {y1}, {x2}, {y2}]")
+           found = True 
 
            # Draw green bounding box
            display.setColor(0x00FF00)
            box_w = x2 - x1
            box_h = y2 - y1
            display.drawRectangle(x1, y1, box_w, box_h)
+
+   return found
 
 def start_pose():
     """The robot's start pose in the world: position from the supervisor, heading from the IMU."""
@@ -245,6 +301,9 @@ def main():
     finished_at = None  # when the robot got back home with nothing left to explore
     manual_active = False
     last_manual = -1e9
+    yolo_checks, yolo_hits = 0, 0  # YOLO checked while a victim was in view / YOLO saw a person
+    was_approaching = False
+    target_victim = None
 
     print("[SUCCESS] First Responder robot_controller is connected and streaming code!")
 
@@ -274,11 +333,19 @@ def main():
             save_maps()
             next_map_save += MAP_SAVE_EVERY
 
-        # VISION DETECTION (off for now: the camera isn't used for navigation yet)
-        # target_found, center_offset = find_orange_target()
+        # VICTIMS: the camera's recognition, and YOLO alongside it (counted only while a victim is in view)
+        if settled and camera:
+            for victim in detector.update(camera, pose, robot.getTime()):
+                print(f"[VICTIM] victim {victim.number} first seen at ({victim.x:.2f}, {victim.y:.2f}), "
+                      f"t={robot.getTime():.1f} s{truth_error(victim)}")
+        if camera and step_count % DETECT_EVERY == 0:
+            yolo_saw = draw_victim_bounding_boxes()
+            if detector.in_view:
+                yolo_checks += 1
+                yolo_hits += int(yolo_saw)
 
-        #where to go next, as a forward speed (m/s) and turn rate (rad/s, positive = left)
-                # manual override: any drive key takes control; no keys for MANUAL_TIMEOUT hands it back
+        # where to go next, as a forward speed (m/s) and turn rate (rad/s, positive = left)
+        # manual override: any drive key takes control; no keys for MANUAL_TIMEOUT hands it back
         manual = read_manual_command()
         now = robot.getTime()
         if manual is not None:
@@ -295,18 +362,40 @@ def main():
             print("[MODE] AUTONOMOUS")
 
         target_speed, target_turn_rate = 0.0, 0.0
+        command = None
+        if not manual_active and settled and (approach.active or explorer.state in (explorer.EXPLORING, explorer.RETURNING)):
+            command = approach.update(robot.getTime(), pose, explorer.costmap)
+        if settled and not approach.active:
+            if explorer.target_failed and target_victim is not None:
+                target_victim.tries += 1
+                target_victim.retry_after = robot.getTime() + (approach.retry_wait if target_victim.tries < 3 else math.inf)
+            explorer.target_failed = False
+            nearest = detector.nearest_unreported(pose, robot.getTime())
+            target_victim = nearest[0] if nearest else None
+            explorer.target = (target_victim.x, target_victim.y) if target_victim else None
         if manual_active:
             # keys held -> drive; keys just released -> hold still until the timeout expires
             target_speed, target_turn_rate = manual if manual is not None else (0.0, 0.0)
+        elif command is not None:
+            # driving to a victim: still through the local safety check, so it never drives into rubble
+            target_speed, target_turn_rate = explorer.local.check(pose, *command)
         elif settled:
             stops = explorer.stops
             target_speed, target_turn_rate = explorer.update(robot.getTime(), pose, roll, pitch, slam.nav_points)
             if explorer.stops > stops:
-                ...  # your existing [STOP] print block, unchanged
                 blocking = explorer.local.blocking
                 nearest = blocking[int(np.argmin(np.hypot(blocking[:, 0] - pose.x, blocking[:, 1] - pose.y)))]
                 print(f"[STOP] {robot.getTime():.1f} local cost map: {len(blocking)} cells in the way, nearest at "
                       f"({nearest[0]:.2f}, {nearest[1]:.2f})")
+        if approach.active != was_approaching:
+            forward_pid.reset()
+            angular_pid.reset()
+            if was_approaching:
+                # back to exploring: the time spent with the victim isn't being stuck or making no progress
+                now = robot.getTime()
+                explorer._motion.clear()
+                explorer._progress_time, explorer._best_left, explorer._next_plan = now, math.inf, now
+            was_approaching = approach.active
 
         step_count += 1
         if step_count % LOG_EVERY == 0:
@@ -323,6 +412,10 @@ def main():
                   f"fit={slam.fitness:.2f} rmse={slam.rmse:.3f} keyframes={len(slam.keyframes)} "
                   f"relocalized={slam.relocalizations}")
 
+            reported = sum(v.reported for v in detector.victims)
+            print(f"  victims seen={len(detector.victims)} reported={reported} in_view={detector.in_view} "
+                  f"yolo={yolo_hits}/{yolo_checks}")
+
         if explorer.state != previous_state:
             forward_pid.reset()
             angular_pid.reset()
@@ -334,7 +427,20 @@ def main():
             previous_state = explorer.state
 
         if finished_at is not None and robot.getTime() >= finished_at + FINISH_WAIT:
-            print(f"[DONE] Back home and finished exploring at {finished_at:.1f} s; pausing the simulation.")
+            reported = sum(v.reported for v in detector.victims)
+            print(f"[SUMMARY] t={finished_at:.1f} s, victims reported {reported} of 2, seen {len(detector.victims)}, "
+                    f"YOLO agreed {yolo_hits}/{yolo_checks}, stops {explorer.stops}, tipping {explorer.tilt_events}")
+            for v in detector.victims:
+                    print(f"[SUMMARY] victim {v.number}: ({v.x:.2f}, {v.y:.2f}){truth_error(v)} "
+                        f"{'reached' if v.reported else 'seen, not reached'}")
+
+
+            
+            if explorer.home is not None and math.dist((pose.x, pose.y), explorer.home) < 0.5:
+                print(f"[DONE] Back home and finished exploring at {finished_at:.1f} s; pausing the simulation.")
+            else:
+                print(f"[DONE] Stopped at ({pose.x:.2f}, {pose.y:.2f}), couldn't get further, at {finished_at:.1f} s; "
+                      f"pausing the simulation.")
             robot.simulationSetMode(Supervisor.SIMULATION_MODE_PAUSE)
             finished_at = None
 

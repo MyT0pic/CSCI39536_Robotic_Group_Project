@@ -23,12 +23,13 @@ class GridMap:
     lip = 0.04                 # ... allowing this much extra rise over slope_span cells (ledges, noise)
     slope_span = 2             # cells apart that ground heights are compared for steepness
     min_patch = 4              # a blocked patch smaller than this (cells) ...
-    min_lone_hits = 3          # ... needs a cell with this many points in the way, or it's speckle
+    min_lone_hits = 8          # ... needs a cell with this many points in the way, or it's speckle
     sink_tolerance = 0.08      # points this far below the ground around them are ignored
     close_range = 3.5          # low obstacles and steep ground count only where seen from this close
     tall_height = 0.4          # things at least this high count at any range
     max_range = 12.0           # points seen from farther than this are left out
     margin = 2.0               # room left around the points when laying out the grid
+    min_spread = 0.03          # points in the way around a cell must span at least this much height
 
     def __init__(self):
         self._first = np.zeros(2, dtype=np.int64)  # cell (0, 0) is world cell _first: cell edges are always at
@@ -97,7 +98,14 @@ class GridMap:
         with np.errstate(invalid="ignore"):
             in_the_way = (height > self.step_height) & (height < self.clearance) & (close | (height >= self.tall_height))
         hits = np.bincount(flat[in_the_way], minlength=cells).reshape(shape)  # points in the way, per cell
-        blocked = hits > 0
+            # A real obstacle spans several lidar layers, so its points around a cell differ in height; a sliver of
+        # points all at one height (a stray part of a single beam layer) isn't an obstacle
+        way_z = np.where(in_the_way, z, np.nan)
+        highest = per_cell(np.nan_to_num(way_z, nan=-np.inf), np.maximum, -np.inf).reshape(shape)
+        lowest_way = per_cell(np.nan_to_num(way_z, nan=np.inf), np.minimum, np.inf).reshape(shape)
+        spread = (ndimage.maximum_filter(highest, size=3, mode="constant", cval=-np.inf) -
+                  ndimage.minimum_filter(lowest_way, size=3, mode="constant", cval=np.inf))
+        blocked = (hits >= 2) & (spread >= self.min_spread)
 
         # Too steep: ground rises or drops too much compared with the cells slope_span cells away.
         # Measuring over a few cells rather than next door keeps a few cm of map noise from

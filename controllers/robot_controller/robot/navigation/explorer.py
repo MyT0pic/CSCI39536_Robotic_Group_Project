@@ -39,7 +39,7 @@ class Explorer:
     max_attempts = 3           # tries per goal; given-up goals are retried only when no fresh frontier is left
     gain_radius = 2.0          # a cell's gain is the unexplored area (m2) within this distance
     min_gain = 0.5             # a frontier needs at least min_gain ...
-    gain_per_m = 0.1           # ... + gain_per_m per metre of path (m2) of gain
+    gain_per_m = 0.02          # ... + gain_per_m per metre of path (m2) of gain
     progress_distance = 0.3    # the path left must shrink by this much ...
     progress_timeout = 12.0    # ... this often, or the goal is given up on
     max_back_ups = 2           # back-offs on the way to one goal before giving it up
@@ -56,6 +56,11 @@ class Explorer:
     slow_factor = 0.4          # share of full speed right next to obstacles ...
     full_speed_clearance = 0.5  # ... rising to full speed with this much room
     min_lookahead = 0.5        # pursuit lookahead next to obstacles, rising to its own in the open
+    idle_time = 15.0           # not moving idle_distance for this long while exploring or heading home ...
+    idle_distance = 0.2        # ... means it's boxed in by its own marks: forget those around it and replan ...
+    max_unboxings = 3          # ... and after this many times in one spot, finish there instead of waiting forever
+    target_ring = (0.9, 1.35)  # a target is reached from a cell this far (m) from it
+    target_back_ups = 4        # back-offs on the way to a target before giving it up
 
     def __init__(self):
         self.grid = GridMap()            # global grid, from the SLAM map
@@ -77,6 +82,10 @@ class Explorer:
         self.stops = 0                # times the local cost map's check stopped the robot
         self.unboxed = 0              # times the robot's own marks boxed it in and the nearest were forgotten
         self._boxed_since = None
+        self._idle_anchor = (0.0, 0.0, 0.0)  # (time, x, y) where the robot last started standing still
+        self._last_update = -math.inf
+        self._unbox_spot: Optional[Point] = None
+        self._unbox_count = 0
         self._stops: List[Tuple[float, float, float]] = []  # (time, x, y) of recent stops
         self._next_stop = 0.0
 
@@ -91,6 +100,8 @@ class Explorer:
         self._motion = deque()  # (time, x, y, commanded speed)
         self._resume = self.EXPLORING  # what to go back to after backing up
         self.home: Optional[Point] = None  # where the robot started; it returns here when done
+        self.target: Optional[Point] = None  # somewhere to go before exploring on (e.g. a victim), set by the caller
+        self.target_failed = False           # the last target couldn't be reached
 
     def update(self, time: float, pose: Pose, roll: float, pitch: float,
                map_points: Callable[[], np.ndarray]) -> Command:
@@ -122,6 +133,10 @@ class Explorer:
             self.pursuit.set_path([])
 
         if self.state in (self.EXPLORING, self.RETURNING):
+            if self._idle(time, pose):
+                self._unbox(time, pose)
+                if self.state == self.DONE:
+                    return self._drive(0.0, 0.0)
             if max(abs(roll), abs(pitch)) > self.max_tilt and self._speed > 0:
                 self.tilt_events += 1
                 return self._back_up(time, pose, "tilting")
@@ -133,7 +148,10 @@ class Explorer:
                 # right around it, so up close it keeps choosing the way the check refuses
                 return self._back_up(time, pose, "blocked")
             if self.state == self.EXPLORING and self.goal is not None and self._no_progress(time):
-                self._give_up(self.goal, "no progress")
+                if self._going_to_target():
+                    self._drop_target()
+                else:
+                    self._give_up(self.goal, "no progress")
                 self._next_plan = time
 
         # Replan on schedule, or early when the path is used up (at most 5 times a second: a plan takes
@@ -188,6 +206,8 @@ class Explorer:
         if searched is None:
             return
         start, search = searched
+        if self.target is not None and self._go_to_target(time, pose, search):
+            return
         state, gain = self._exploration_state()
         # Frontier cells are often too close to a wall for the robot's center, so a frontier counts
         # as reached from the cheapest reachable cell within goal_reach of it
@@ -354,6 +374,39 @@ class Explorer:
         self.pursuit.set_path(path.tolist())
         return True
 
+    def _go_to_target(self, time: float, pose: Pose, search: PathSearch) -> bool:
+        """Set the path to the cheapest reachable cell near the target; False if there is none or the robot is there."""
+        centers = self.grid.origin + (np.indices(search.shape).transpose(1, 2, 0) + 0.5) * self.grid.cell_size
+        gap = np.hypot(centers[..., 0] - self.target[0], centers[..., 1] - self.target[1])
+        ring = np.isfinite(search.distance) & (gap >= self.target_ring[0]) & (gap <= self.target_ring[1])
+        if not ring.any():
+            self._drop_target()
+            return False
+        cell = np.unravel_index(int(np.argmin(np.where(ring, search.distance, np.inf))), ring.shape)
+        if math.dist(centers[cell], (pose.x, pose.y)) < self.min_travel:
+            return False
+        cells, path = self._route(search.path_to(cell))
+        self._no_goal_since = None
+        self.state = self.EXPLORING
+        if self._going_to_target() and self._current_path_still_good(cells):
+            self.goal = self.target
+            return True
+        if not self._going_to_target():
+            self._best_left, self._progress_time = math.inf, time
+            self._goal_back_ups = 0
+        self.goal = self.target
+        self.pursuit.set_path(path.tolist())
+        return True
+
+    def _going_to_target(self) -> bool:
+        return self.target is not None and self.goal is not None and math.dist(self.goal, self.target) < 0.5
+
+    def _drop_target(self) -> None:
+        self.target = None
+        self.target_failed = True
+        self.goal = None
+        self.pursuit.set_path([])
+
     def _committed_goal(self, gain: np.ndarray, near_cost: np.ndarray) -> Optional[Tuple[Cell, Point]]:
         """The current goal as (cell, world point) if it still has gain, is reachable and isn't given up on."""
         if self.state != self.EXPLORING or self.goal is None:
@@ -467,6 +520,31 @@ class Explorer:
         self._stops = []
         return True
 
+    def _idle(self, time: float, pose: Pose) -> bool:
+        """Whether the robot hasn't moved idle_distance for idle_time (time spent elsewhere, e.g. with a victim, doesn't count)."""
+        t0, x0, y0 = self._idle_anchor
+        if time - self._last_update > 1.0 or math.hypot(pose.x - x0, pose.y - y0) > self.idle_distance:
+            self._idle_anchor = (time, pose.x, pose.y)
+        self._last_update = time
+        return time - self._idle_anchor[0] > self.idle_time
+
+    def _unbox(self, time: float, pose: Pose) -> None:
+        """Standing still with nowhere to go: the robot's own back-off marks have usually boxed it in. Forget them and
+        replan; if that keeps happening in the same spot, stop exploring there."""
+        here = (pose.x, pose.y)
+        same_spot = self._unbox_spot is not None and math.dist(here, self._unbox_spot) < 0.5
+        self._unbox_count = self._unbox_count + 1 if same_spot else 1
+        self._unbox_spot = here
+        self._idle_anchor = (time, pose.x, pose.y)
+        if self._unbox_count >= self.max_unboxings:
+            self.state = self.DONE
+            self.goal = None
+            self.pursuit.set_path([])
+            return
+        self._forget_obstacles_near(pose, 1.0)
+        self._next_plan = time
+        self._last_plan = -math.inf
+
     def _back_up(self, time: float, pose: Pose, reason: str = "") -> Command:
         """Mark the front of the robot as an obstacle and back up; give up the goal after max_back_ups."""
         # Mark the whole front of the robot, not just straight ahead: what stopped or tipped it is often under
@@ -475,7 +553,10 @@ class Explorer:
         self._learn_obstacles(pose, np.array([[0.4, 0.0], [0.3, 0.2], [0.3, -0.2]]))
         self.back_up_reason = reason
         self._goal_back_ups += 1
-        if self.goal is not None and self._goal_back_ups >= self.max_back_ups:
+        if self._going_to_target():
+            if self._goal_back_ups >= self.target_back_ups:
+                self._drop_target()
+        elif self.goal is not None and self._goal_back_ups >= self.max_back_ups:
             self._give_up(self.goal, "backed off")
         self._resume = self.state
         self.state = self.BACKING_UP

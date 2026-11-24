@@ -46,7 +46,7 @@ You need [Webots](https://cyberbotics.com) (version R2025a or newer) and Python 
 1. Open Webots.
 2. Choose **File → Open World…** and pick `worlds/building_site.wbt`.
 3. Choose **File → Open Text File…** and pick `controllers/robot_controller/robot_controller.py`.
-5. Press **Play**.
+4. Press **Play**.
 
 The robot starts outside the building's main entrance, drives around and turns away from walls. The first run needs an internet connection, because Webots downloads the robot, arena models and YOLO model (it can take a minute or two).
 

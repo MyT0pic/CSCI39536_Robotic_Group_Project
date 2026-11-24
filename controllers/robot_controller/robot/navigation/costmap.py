@@ -29,6 +29,8 @@ class CostMap:
     visited_radius = 0.2       # cells this close to where the robot has driven count as free
     obstacle_radius = 0.15     # radius painted around a learned obstacle
     tight_trail_cost = 200.0   # cost of a driven cell closer than robot_radius to an obstacle
+    outside_cost = 4.0         # extra cost of a cell outside the preferred area (if one is set) ...
+    preferred_area = None      # ... (x min, x max, y min, y max), e.g. the building: paths stay inside when they can
     # check()
     margin = 0.08              # room kept in front of the body ...
     side_margin = 0.03         # ... and beside it
@@ -79,6 +81,11 @@ class CostMap:
         cost[self.clearance < self.robot_radius] = np.inf
         tight = (trail == 1) & np.isinf(cost) & (state != GridMap.BLOCKED)
         cost[tight] = self.tight_trail_cost  # driven through before, so drivable, but avoided when possible
+        if self.preferred_area is not None:
+            x0, x1, y0, y1 = self.preferred_area
+            centers = grid.origin + (np.indices(cost.shape).transpose(1, 2, 0) + 0.5) * grid.cell_size
+            outside = (centers[..., 0] < x0) | (centers[..., 0] > x1) | (centers[..., 1] < y0) | (centers[..., 1] > y1)
+            cost[outside] += self.outside_cost
         self.cost = cost
 
     def free_around(self, cell: Cell, radius: float, cost: float = 50.0) -> None:

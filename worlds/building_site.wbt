@@ -95,15 +95,20 @@ DEF RESPONDER Pioneer3at {
   supervisor TRUE
   extensionSlot [
     Display {
-      width 160
-      height 120
+      width 320
+      height 240
     }
     Camera {
       translation 0.22 0 0.33
       name "camera"
       fieldOfView 1
-      width 160
-      height 120
+      width 320
+      height 240
+      recognition Recognition {
+        maxRange 8
+        frameColor 0 1 0
+        frameThickness 2
+      }
     }
     InertialUnit {
       translation 0 0 0.2
