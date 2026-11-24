@@ -18,6 +18,7 @@ Oscar Pan
 | ✅ | Explore the arena on its own | Working |
 | ✅ | Detect and avoid walls and objects(LIMITATION - ORANGE OBJECTS CURRENTLY)  | Working |
 | ✅ | Manual controls  | Working |
+| ✅ | Camera  | Working |
 | 🔜 | Find a victim marker | Next |
 | 🔜 | Deliver supplies | Planned |
 | 🔜 | Pick up rubble and debris | Planned |
