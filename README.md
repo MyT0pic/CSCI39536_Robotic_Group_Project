@@ -17,6 +17,7 @@ Oscar Pan
 |---|---|---|
 | ✅ | Explore the arena on its own | Working |
 | ✅ | Detect and avoid walls and objects(LIMITATION - ORANGE OBJECTS CURRENTLY)  | Working |
+| ✅ | Manual controls  | Working |
 | 🔜 | Find a victim marker | Next |
 | 🔜 | Deliver supplies | Planned |
 | 🔜 | Pick up rubble and debris | Planned |
@@ -63,6 +64,7 @@ stateDiagram-v2
 - **Drive:** go straight while the front sensors see nothing close.
 - **Back up:** when a wall or an non-human object is close, reverse briefly to get clear of it.
 - **Turn:** rotate toward whichever side has more room, then drive again.
+- **Manual or autonomous control** robot can run on it's own or be controlled by a supervisor using arrow keys or W,A,S,D
 
 The code is in [controllers/robot_controller/robot_controller.py](controllers/robot_controller/robot_controller.py), and the arena is in [worlds/building_site.wbt](worlds/building_site.wbt).
 
